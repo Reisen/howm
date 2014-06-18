@@ -17,6 +17,9 @@ typedef struct {
 						       called when the key is pressed. */
 } Operator;
 
-static void op_kill(const int type, int cnt);
-static void op_move_up(const int type, int cnt);
-static void op_move_down(const int type, int cnt);
+enum {CLIENT, WORKSPACE};
+
+void op_kill(const int type, int cnt);
+void op_move_up(const int type, int cnt);
+void op_move_down(const int type, int cnt);
+void move_ws_or_client(const int type, int cnt, bool up);
