@@ -41,16 +41,21 @@ release: export CXXFLAGS := $(CXXFLAGS) $(COMPILE_FLAGS) $(RCOMPILE_FLAGS)
 release: export LDFLAGS := $(LDFLAGS) $(LINK_FLAGS) $(RLINK_FLAGS)
 debug: export CXXFLAGS := $(CXXFLAGS) $(COMPILE_FLAGS) $(DCOMPILE_FLAGS)
 debug: export LDFLAGS := $(LDFLAGS) $(LINK_FLAGS) $(DLINK_FLAGS)
+test: export CXXFLAGS := $(CXXFLAGS) $(COMPILE_FLAGS) $(RCOMPILE_FLAGS)
+test: export LDFLAGS := $(LDFLAGS) $(LINK_FLAGS) $(RLINK_FLAGS)
 
 # Build and output paths
 release: export BUILD_PATH := build/release
 release: export BIN_PATH := bin/release
 debug: export BUILD_PATH := build/debug
 debug: export BIN_PATH := bin/debug
+test: export BIN_PATH := bin/test
+test: export BUILD_PATH := build/test
 install: export BIN_PATH := bin/release
 
 # Find all source files in the source directory
-SOURCES = $(shell find $(SRC_PATH)/ -name '*.$(SRC_EXT)')
+SOURCES = $(shell find $(SRC_PATH)/ -maxdepth 1 -name '*.$(SRC_EXT)')
+test: SOURCES = $(shell find $(SRC_PATH)/tests -name '*.$(SRC_EXT)')
 # Set the object file names, with the source directory stripped
 # from the path, and the build path prepended in its place
 OBJECTS = $(SOURCES:$(SRC_PATH)/%.$(SRC_EXT)=$(BUILD_PATH)/%.o)
@@ -101,6 +106,15 @@ debug: dirs
 	@echo -n "Total build time: "
 	@$(END_TIME)
 
+# Test build for gdb debugging
+.PHONY: test
+test: dirs
+	@echo "Beginning test build v$(VERSION_STRING)"
+	@$(START_TIME)
+	@$(MAKE) all --no-print-directory
+	@echo -n "Total build time: "
+	@$(END_TIME)
+
 # Create the directories used in the build
 .PHONY: dirs
 dirs:
@@ -114,11 +128,11 @@ install:
 	@echo "Installing to $(DESTDIR)$(INSTALL_PREFIX)/bin"
 	@install -m 0755 $(BIN_PATH)/$(BIN_NAME) $(DESTDIR)$(INSTALL_PREFIX)/bin
 
+# Check for linux style errors.
 .PHONY: check
 check:
 	@echo "Using checkpatch.pl to check style."
-	@./checkpatch.pl --no-tree --ignore LONG_LINE,NEW_TYPEDEFS,UNNECESSARY_ELSE -f {howm.c,howm.h,tests.c,config.h}
-	
+	@./checkpatch.pl --no-tree --ignore LONG_LINE,NEW_TYPEDEFS,UNNECESSARY_ELSE -f {howm.c,howm.h,tests/tests.c,config.h}
 
 # Removes all build files
 .PHONY: clean

@@ -809,7 +809,7 @@ int get_non_tff_count(void)
  *
  * @return The first client that isn't TFF. NULL if none.
  */
- Client *get_first_non_tff(void)
+Client *get_first_non_tff(void)
 {
 	Client *c = NULL;
 
@@ -1534,7 +1534,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * workspace.
  * @param cnt The amount of clients or workspaces to perform the operation on.
  */
- void op_shrink_gaps(const unsigned int type, int cnt)
+void op_shrink_gaps(const unsigned int type, int cnt)
 {
 	change_gaps(type, cnt, -OP_GAP_SIZE);
 }
@@ -1550,7 +1550,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * workspace.
  * @param cnt The amount of clients or workspaces to perform the operation on.
  */
- void op_grow_gaps(const unsigned int type, int cnt)
+void op_grow_gaps(const unsigned int type, int cnt)
 {
 	change_gaps(type, cnt, OP_GAP_SIZE);
 }
@@ -1561,7 +1561,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * @param c The client who's gap size should be changed.
  * @param size The size by which the gap should be changed.
  */
- void change_client_gaps(Client *c, int size)
+void change_client_gaps(Client *c, int size)
 {
 	if (c->is_fullscreen)
 		return;
@@ -1584,7 +1584,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * @param size The amount of pixels to change the gap size by. This is
  * configured through OP_GAP_SIZE.
  */
- void change_gaps(const unsigned int type, int cnt, int size)
+void change_gaps(const unsigned int type, int cnt, int size)
 {
 	Client *c = NULL;
 
@@ -1614,7 +1614,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg Unused.
  */
- void toggle_float(const Arg *arg)
+void toggle_float(const Arg *arg)
 {
 	UNUSED(arg);
 	if (!wss[cw].current)
@@ -1637,7 +1637,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg The amount of pixels that the window's size should be changed by.
  */
- void resize_float_width(const Arg *arg)
+void resize_float_width(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating || (int)wss[cw].current->w + arg->i <= 0)
 		return;
@@ -1654,7 +1654,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg The amount of pixels that the window's size should be changed by.
  */
- void resize_float_height(const Arg *arg)
+void resize_float_height(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating || (int)wss[cw].current->h + arg->i <= 0)
 		return;
@@ -1671,7 +1671,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg The amount of pixels that the window should be moved.
  */
- void move_float_y(const Arg *arg)
+void move_float_y(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating)
 		return;
@@ -1689,7 +1689,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg The amount of pixels that the window should be moved.
  */
- void move_float_x(const Arg *arg)
+void move_float_x(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating)
 		return;
@@ -1704,7 +1704,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg Which location to teleport the window to.
  */
- void teleport_client(const Arg *arg)
+void teleport_client(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating
 			|| wss[cw].current->is_transient)
@@ -1754,7 +1754,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg The return value that howm will send.
  */
- void quit_howm(const Arg *arg)
+void quit_howm(const Arg *arg)
 {
 	log_warn("Quitting");
 	retval = arg->i;
@@ -1767,7 +1767,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * Delete all of the windows that have been created, remove button and key
  * grabs and remove pointer focus.
  */
- void cleanup(void)
+void cleanup(void)
 {
 	xcb_window_t *w;
 	xcb_query_tree_reply_t *q;
@@ -1796,7 +1796,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param win The window to be deleted.
  */
- void delete_win(xcb_window_t win)
+void delete_win(xcb_window_t win)
 {
 	xcb_client_message_event_t ev;
 
@@ -1819,7 +1819,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * percentage. e.g. arg->i = 5 will increase the master window's size by 5% of
  * it maximum.
  */
- void resize_master(const Arg *arg)
+void resize_master(const Arg *arg)
 {
 	/* Resize master only when resizing is visible (i.e. in Stack layouts). */
 	if (wss[cw].layout != HSTACK && wss[cw].layout != VSTACK)
@@ -1840,7 +1840,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  *
  * @param arg Unused.
  */
- void toggle_bar(const Arg *arg)
+void toggle_bar(const Arg *arg)
 {
 	UNUSED(arg);
 	if (wss[cw].bar_height == 0 && BAR_HEIGHT > 0) {
@@ -1899,7 +1899,7 @@ Client *create_client(xcb_window_t w)
  *
  * @param arg Unused
  */
- void make_master(const Arg *arg)
+void make_master(const Arg *arg)
 {
 	UNUSED(arg);
 	if (!wss[cw].current || !wss[cw].head->next
@@ -1960,7 +1960,7 @@ void setup_ewmh(void)
  * @param c The client which should have its fullscreen state altered.
  * @param fscr The fullscreen state that the client should be changed to.
  */
- void set_fullscreen(Client *c, bool fscr)
+void set_fullscreen(Client *c, bool fscr)
 {
 	long data[] = {fscr ? ewmh->_NET_WM_STATE_FULLSCREEN : XCB_NONE };
 
@@ -1983,7 +1983,7 @@ void setup_ewmh(void)
 	}
 }
 
- void set_urgent(Client *c, bool urg)
+void set_urgent(Client *c, bool urg)
 {
 	if (!c || urg == c->is_urgent)
 		return;
@@ -1999,7 +1999,7 @@ void setup_ewmh(void)
  *
  * @param arg Unused.
  */
- void toggle_fullscreen(const Arg *arg)
+void toggle_fullscreen(const Arg *arg)
 {
 	UNUSED(arg);
 	if (wss[cw].current != NULL)
@@ -2011,7 +2011,7 @@ void setup_ewmh(void)
  *
  * @param ev The client message as a generic event.
  */
- void client_message_event(xcb_generic_event_t *ev)
+void client_message_event(xcb_generic_event_t *ev)
 {
 	xcb_client_message_event_t *cm = (xcb_client_message_event_t *)ev;
 	Client *c = find_client_by_win(cm->window);
@@ -2040,7 +2040,7 @@ void setup_ewmh(void)
  * @param type The last type (defined by a motion).
  * @param cnt The last count.
  */
- void save_last_ocm(void (*op)(const unsigned int, int), const unsigned int type, int cnt)
+void save_last_ocm(void (*op)(const unsigned int, int), const unsigned int type, int cnt)
 {
 	rep_state.last_op = op;
 	rep_state.last_type = type;
@@ -2055,7 +2055,7 @@ void setup_ewmh(void)
  * @param cmd The last command.
  * @param arg The argument passed to the last command.
  */
- void save_last_cmd(void (*cmd)(const Arg *arg), const Arg *arg)
+void save_last_cmd(void (*cmd)(const Arg *arg), const Arg *arg)
 {
 	rep_state.last_cmd = cmd;
 	rep_state.last_arg = arg;
@@ -2068,7 +2068,7 @@ void setup_ewmh(void)
  *
  * @param arg Unused
  */
- void replay(const Arg *arg)
+void replay(const Arg *arg)
 {
 	UNUSED(arg);
 	if (rep_state.last_cmd)
@@ -2082,7 +2082,7 @@ void setup_ewmh(void)
  *
  * @param arg Unused.
  */
- void restart_howm(const Arg *arg)
+void restart_howm(const Arg *arg)
 {
 	UNUSED(arg);
 	log_warn("Restarting.");
@@ -2099,7 +2099,7 @@ void setup_ewmh(void)
  * @param a The atom representing which WM_STATE hint should be modified.
  * @param action Whether to remove, add or toggle the WM_STATE hint.
  */
- void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action)
+void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action)
 {
 	if (a == ewmh->_NET_WM_STATE_FULLSCREEN) {
 		if (action == _NET_WM_STATE_REMOVE)
@@ -2128,7 +2128,7 @@ void setup_ewmh(void)
  *
  * @param s The stack that needs to have its contents allocated.
  */
- void stack_init(struct stack *s)
+void stack_init(struct stack *s)
 {
 	s->contents = (Client **)malloc(sizeof(Client) * DELETE_REGISTER_SIZE);
 	if (!s->contents)
@@ -2140,7 +2140,7 @@ void setup_ewmh(void)
  *
  * @param s The stack that needs to have its contents freed.
  */
- void stack_free(struct stack *s)
+void stack_free(struct stack *s)
 {
 	free(s->contents);
 }
@@ -2152,7 +2152,7 @@ void setup_ewmh(void)
  * @param c The client to be pushed on. This client is treated as the head of a
  * linked list.
  */
- void stack_push(struct stack *s, Client *c)
+void stack_push(struct stack *s, Client *c)
 {
 	if (!c || !s) {
 		return;
@@ -2171,7 +2171,7 @@ void setup_ewmh(void)
  * @return The client that was at the top of the stack. It acts as the head of
  * the linked list of clients.
  */
- Client *stack_pop(struct stack *s)
+Client *stack_pop(struct stack *s)
 {
 	if (!s) {
 		return NULL;
@@ -2193,7 +2193,7 @@ void setup_ewmh(void)
  * @param type Whether to cut an entire workspace or client.
  * @param cnt The amount of clients or workspaces to cut.
  */
- void op_cut(const unsigned int type, int cnt)
+void op_cut(const unsigned int type, int cnt)
 {
 	Client *tail = wss[cw].current;
 	Client *head = wss[cw].current;
@@ -2264,7 +2264,7 @@ void setup_ewmh(void)
  *
  * @param arg Unused.
  */
- void focus_urgent(const Arg *arg)
+void focus_urgent(const Arg *arg)
 {
 	UNUSED(arg);
 	Client *c;
@@ -2286,7 +2286,7 @@ void setup_ewmh(void)
  *
  * @param arg Unused
  */
- void paste(const Arg *arg)
+void paste(const Arg *arg)
 {
 	UNUSED(arg);
 	Client *head = stack_pop(&del_reg);
@@ -2340,7 +2340,7 @@ void setup_ewmh(void)
  *
  * @param c The client that has been created.
  */
- void apply_rules(Client *c)
+void apply_rules(Client *c)
 {
 	xcb_icccm_get_wm_class_reply_t wc;
 	unsigned int i;
