@@ -1,16 +1,12 @@
-#include <err.h>
-#include <errno.h>
-#include <stdbool.h>
+#include <xcb/xcb_icccm.h>
+#include <unistd.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <X11/keysym.h>
-#include <X11/X.h>
-#include <xcb/xcb.h>
-#include <xcb/xcb_icccm.h>
+#include <errno.h>
+#include <err.h>
 #include <xcb/xcb_keysyms.h>
-#include <xcb/xcb_ewmh.h>
+#include "howm.h"
 
 /**
  * @file howm.c
@@ -29,398 +25,6 @@
  *│╹ ╹┗━┛┗┻┛╹ ╹│
  *└────────────┘
 */
-
-/** Calculates a mask that can be applied to a window in order to reconfigure a
- * window. */
-#define MOVE_RESIZE_MASK (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | \
-			  XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT)
-/** Ensures that the number lock doesn't intefere with checking the equality
- * of two modifier masks.*/
-#define CLEANMASK(mask) (mask & ~(numlockmask | XCB_MOD_MASK_LOCK))
-/** Wraps up the comparison of modifier masks into a neat package. */
-#define EQUALMODS(mask, omask) (CLEANMASK(mask) == CLEANMASK(omask))
-/** Calculates the length of an array. */
-#define LENGTH(x) (unsigned int)(sizeof(x) / sizeof(*x))
-/** Checks to see if a client is floating, fullscreen or transient. */
-#define FFT(c) (c->is_transient || c->is_floating || c->is_fullscreen)
-/** Supresses the unused variable compiler warnings. */
-#define UNUSED(x) (void)(x)
-
-/** The remove action for a WM_STATE request. */
-#define _NET_WM_STATE_REMOVE 0
-/** The add action for a WM_STATE request. */
-#define _NET_WM_STATE_ADD 1
-/** The toggle action for a WM_STATE request. */
-#define _NET_WM_STATE_TOGGLE 2
-
-/**
- * @brief Represents an argument.
- *
- * Used to hold data that is sent as a parameter to a function when called as a
- * result of a keypress.
- */
-typedef union {
-	const char * const * const cmd; /**< Represents a command that will be called by a shell.  */
-	int i; /**< Usually used for specifying workspaces or clients. */
-} Arg;
-
-/**
- * @brief Represents a key.
- *
- * Holds information relative to a key, such as keysym and the mode during
- * which the keypress can be seen as valid.
- */
-typedef struct {
-	int mod; /**< The mask of the modifiers pressed. */
-	unsigned int mode; /**< The mode within which this keypress is valid. */
-	xcb_keysym_t sym;  /**< The keysym of the pressed key. */
-	void (*func)(const Arg *); /**< The function to be called when this key is pressed. */
-	const Arg arg; /**< The argument passed to the above function. */
-} Key;
-
-/**
- * @brief Represents a rule that is applied to a client upon it starting.
- */
-typedef struct {
-	const char *class; /**<	The class or name of the client. */
-	int ws; /**<  The workspace that the client should be spawned
-				on (0 means current workspace). */
-	bool follow; /**< If the client is spawned on another ws, shall we follow? */
-	bool is_floating; /**< Spawn the client in a floating state? */
-	bool is_fullscreen; /**< Spawn the client in a fullscreen state? */
-} Rule;
-
-/**
- * @brief Represents an operator.
- *
- * Operators perform an action upon one or more targets (identified by
- * motions).
- */
-typedef struct {
-	int mod; /**< The mask of the modifiers pressed. */
-	xcb_keysym_t sym; /**< The keysym of the pressed key. */
-	unsigned int mode; /**< The mode within which this keypress is valid. */
-	void (*func)(const unsigned int type, const int cnt); /**< The function to be
-								 * called when the key is pressed. */
-} Operator;
-
-/**
- * @brief Represents a motion.
- *
- * A motion can be used to target an operation at something specific- such as a
- * client or workspace.
- *
- * For example:
- *
- * q4c (Kill, 4, Clients).
- */
-typedef struct {
-	int mod; /**< The mask of the modifiers pressed. */
-	xcb_keysym_t sym; /**< The keysym of the pressed key. */
-	unsigned int type; /**< Represents whether the motion is for clients, WS etc. */
-} Motion;
-
-/**
- * @brief Represents a button.
- *
- * Allows the mapping of a button to a function, as is done with the Key struct
- * for keys.
- */
-typedef struct {
-	int mod; /**< The mask of the modifiers pressed.  */
-	short int button; /**< The button that was pressed. */
-	void (*func)(const Arg *); /**< The function to be called when the
-					* button is pressed. */
-	const Arg arg; /**< The argument passed to the above function. */
-} Button;
-
-/**
- * @brief Represents a client that is being handled by howm.
- *
- * All the attributes that are needed by howm for a client are stored here.
- */
-typedef struct Client {
-	struct Client *next; /**< Clients are stored in a linked list-
-					* this represents the client after this one. */
-	bool is_fullscreen; /**< Is the client fullscreen? */
-	bool is_floating; /**< Is the client floating? */
-	bool is_transient; /**< Is the client transient?
-					* Defined at: http://standards.freedesktop.org/wm-spec/wm-spec-latest.html*/
-	bool is_urgent; /**< This is set by a client that wants focus for some reason. */
-	xcb_window_t win; /**< The window that this client represents. */
-	uint16_t x; /**< The x coordinate of the client. */
-	uint16_t y; /**< The y coordinate of the client. */
-	uint16_t w; /**< The width of the client. */
-	uint16_t h; /**< The height of the client. */
-	uint16_t gap; /**< The size of the useless gap between this client and
-			the others. */
-} Client;
-
-/**
- * @brief Represents a workspace, which stores clients.
- *
- * Clients are stored as a linked list. Changing to a different workspace will
- * cause different clients to be rendered on the screen.
- */
-typedef struct {
-	int layout; /**< The current layout of the WS, as defined in the
-				* layout enum. */
-	int client_cnt; /**< The amount of clients on this workspace. */
-	uint16_t gap; /**< The size of the useless gap between windows for this workspace. */
-	float master_ratio; /**< The ratio of the size of the master window
-				 compared to the screen's size. */
-	uint16_t bar_height; /**< The height of the space left for a bar. Stored
-			      here so it can be toggled per ws. */
-	Client *head; /**< The start of the linked list. */
-	Client *prev_foc; /**< The last focused client. This is seperate to
-				* the linked list structure. */
-	Client *current; /**< The client that is currently in focus. */
-} Workspace;
-
-/**
- * @brief Represents the last command (and its arguments) or the last
- * combination of operator, count and motion (ocm).
- */
-struct replay_state {
-	void (*last_op)(const unsigned int type, int cnt); /**< The last operator to be called. */
-	void (*last_cmd)(const Arg *arg); /**< The last command to be called. */
-	const Arg *last_arg; /**< The last argument, passed to the last command. */
-	unsigned int last_type; /**< The value determine by the last motion
-				(workspace, client etc).*/
-	int last_cnt; /**< The last count passed to the last operator function. */
-};
-
-/**
- * @brief Represents a stack. This stack is going to hold linked lists of
- * clients. An example of the stack is below:
- *
- * TOP
- * ==========
- * c1->c2->c3->NULL
- * ==========
- * c1->NULL
- * ==========
- * c1->c2->c3->NULL
- * ==========
- * BOTTOM
- *
- */
-struct stack {
-	int size; /**< The amount of items in the stack. */
-	Client **contents; /**< The contents is an array of linked lists. Storage
-			is malloced later as we don't know the size yet.*/
-};
-
-
-/* Operators */
-static void op_kill(const unsigned int type, int cnt);
-static void op_move_up(const unsigned int type, int cnt);
-static void op_move_down(const unsigned int type, int cnt);
-static void op_focus_down(const unsigned int type, int cnt);
-static void op_focus_up(const unsigned int type, int cnt);
-static void op_shrink_gaps(const unsigned int type, int cnt);
-static void op_grow_gaps(const unsigned int type, int cnt);
-static void op_cut(const unsigned int type, int cnt);
-
-/* Clients */
-static void teleport_client(const Arg *arg);
-static void change_client_gaps(Client *c, int size);
-static void change_gaps(const unsigned int type, int cnt, int size);
-static void move_current_down(const Arg *arg);
-static void move_current_up(const Arg *arg);
-static void kill_client(const int ws, bool arrange);
-static void move_down(Client *c);
-static void move_up(Client *c);
-static Client *next_client(Client *c);
-static void focus_next_client(const Arg *arg);
-static void focus_prev_client(const Arg *arg);
-static void update_focused_client(Client *c);
-static Client *prev_client(Client *c, int ws);
-static Client *create_client(xcb_window_t w);
-static void remove_client(Client *c);
-static Client *find_client_by_win(xcb_window_t w);
-static void client_to_ws(Client *c, const int ws, bool follow);
-static void current_to_ws(const Arg *arg);
-static void draw_clients(void);
-static void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-static void toggle_float(const Arg *arg);
-static void resize_float_width(const Arg *arg);
-static void resize_float_height(const Arg *arg);
-static void move_float_y(const Arg *arg);
-static void move_float_x(const Arg *arg);
-static void make_master(const Arg *arg);
-static void grab_buttons(Client *c);
-static void set_fullscreen(Client *c, bool fscr);
-static void set_urgent(Client *c, bool urg);
-static void toggle_fullscreen(const Arg *arg);
-static void focus_urgent(const Arg *arg);
-static void send_to_scratchpad(const Arg *arg);
-static void get_from_scratchpad(const Arg *arg);
-
-/* Workspaces */
-static void kill_ws(const int ws);
-static void toggle_bar(const Arg *arg);
-static void resize_master(const Arg *arg);
-static void focus_next_ws(const Arg *arg);
-static void focus_prev_ws(const Arg *arg);
-static void focus_last_ws(const Arg *arg);
-static void change_ws(const Arg *arg);
-static int correct_ws(int ws);
-
-/* Layouts */
-static void change_layout(const Arg *arg);
-static void next_layout(const Arg *arg);
-static void previous_layout(const Arg *arg);
-static void last_layout(const Arg *arg);
-static void stack(void);
-static void grid(void);
-static void zoom(void);
-static void arrange_windows(void);
-
-/* Modes */
-static void change_mode(const Arg *arg);
-
-/* Stack */
-static void stack_push(struct stack *s, Client *c);
-static Client *stack_pop(struct stack *s);
-static void stack_init(struct stack *s);
-static void stack_free(struct stack *s);
-
-/* Events */
-static void enter_event(xcb_generic_event_t *ev);
-static void destroy_event(xcb_generic_event_t *ev);
-static void button_press_event(xcb_generic_event_t *ev);
-static void key_press_event(xcb_generic_event_t *ev);
-static void map_event(xcb_generic_event_t *ev);
-static void configure_event(xcb_generic_event_t *ev);
-static void unmap_event(xcb_generic_event_t *ev);
-static void client_message_event(xcb_generic_event_t *ev);
-
-/* XCB */
-static void grab_keys(void);
-static xcb_keycode_t *keysym_to_keycode(xcb_keysym_t sym);
-static void grab_keycode(xcb_keycode_t *keycode, const int mod);
-static void elevate_window(xcb_window_t win);
-static void move_resize(xcb_window_t win, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-static void set_border_width(xcb_window_t win, uint16_t w);
-static void get_atoms(char **names, xcb_atom_t *atoms);
-static void check_other_wm(void);
-static xcb_keysym_t keycode_to_keysym(xcb_keycode_t keycode);
-static void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action);
-
-/* Misc */
-static void apply_rules(Client *c);
-static void howm_info(void);
-static void save_last_ocm(void (*op) (const unsigned int, int), const unsigned int type, int cnt);
-static void save_last_cmd(void (*cmd)(const Arg *), const Arg *arg);
-static void replay(const Arg *arg);
-static void paste(const Arg *arg);
-static int get_non_tff_count(void);
-static Client *get_first_non_tff(void);
-static uint32_t get_colour(char *colour);
-static void spawn(const Arg *arg);
-static void setup(void);
-static void move_client(int cnt, bool up);
-static void focus_window(xcb_window_t win);
-static void quit_howm(const Arg *arg);
-static void restart_howm(const Arg *arg);
-static void cleanup(void);
-static void delete_win(xcb_window_t win);
-static void setup_ewmh(void);
-
-enum layouts { ZOOM, GRID, HSTACK, VSTACK, END_LAYOUT };
-enum states { OPERATOR_STATE, COUNT_STATE, MOTION_STATE, END_STATE };
-enum modes { NORMAL, FOCUS, FLOATING, END_MODES };
-enum motions { CLIENT, WORKSPACE };
-enum net_atom_enum { NET_WM_STATE_FULLSCREEN, NET_SUPPORTED, NET_WM_STATE,
-	NET_ACTIVE_WINDOW };
-enum wm_atom_enum { WM_DELETE_WINDOW, WM_PROTOCOLS };
-enum teleport_locations { TOP_LEFT, TOP_CENTER, TOP_RIGHT, CENTER, BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT };
-
-/* Handlers */
-static void(*handler[XCB_NO_OPERATION]) (xcb_generic_event_t *) = {
-	[XCB_BUTTON_PRESS] = button_press_event,
-	[XCB_KEY_PRESS] = key_press_event,
-	[XCB_MAP_REQUEST] = map_event,
-	[XCB_DESTROY_NOTIFY] = destroy_event,
-	[XCB_ENTER_NOTIFY] = enter_event,
-	[XCB_CONFIGURE_NOTIFY] = configure_event,
-	[XCB_UNMAP_NOTIFY] = unmap_event,
-	[XCB_CLIENT_MESSAGE] = client_message_event
-};
-
-static void(*layout_handler[]) (void) = {
-	[GRID] = grid,
-	[ZOOM] = zoom,
-	[HSTACK] = stack,
-	[VSTACK] = stack
-};
-
-#include "config.h"
-
-static void (*operator_func)(const unsigned int type, int cnt);
-
-static Client *scratchpad;
-static struct stack del_reg;
-static xcb_connection_t *dpy;
-static char *WM_ATOM_NAMES[] = { "WM_DELETE_WINDOW", "WM_PROTOCOLS" };
-static xcb_atom_t wm_atoms[LENGTH(WM_ATOM_NAMES)];
-static xcb_screen_t *screen;
-static xcb_ewmh_connection_t *ewmh;
-static int numlockmask, retval, last_ws, prev_layout, cw = DEFAULT_WORKSPACE;
-static uint32_t border_focus, border_unfocus, border_prev_focus, border_urgent;
-static unsigned int cur_mode, cur_state = OPERATOR_STATE, cur_cnt = 1;
-static uint16_t screen_height, screen_width;
-static bool running = true, restart;
-
-static struct replay_state rep_state;
-
-/* Add comments so that splint ignores this as it doesn't support variadic
- * macros.
- */
-/*@ignore@*/
-#ifdef DEBUG_ENABLE
-/** Output debugging information using puts. */
-#       define DEBUG(x) puts(x)
-/** Output debugging information using printf to allow for formatting. */
-#	define DEBUGP(M, ...) fprintf(stderr, "[DBG] %s:%d: " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#else
-#       define DEBUG(x) do {} while (0)
-#       define DEBUGP(x, ...) do {} while (0)
-#endif
-
-#define LOG_DEBUG 1
-#define LOG_INFO 2
-#define LOG_WARN 3
-#define LOG_ERR 4
-#define LOG_NONE 5
-
-#if LOG_LEVEL == LOG_DEBUG
-#define log_debug(M, ...) fprintf(stderr, "[DEBUG] (%s:%d) " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#else
-#define log_debug(x, ...) do {} while (0)
-#endif
-
-
-#if LOG_LEVEL <= LOG_INFO
-#define log_info(M, ...) fprintf(stderr, "[INFO] (%s:%d) " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#else
-#define log_info(x, ...) do {} while (0)
-#endif
-
-#if LOG_LEVEL <= LOG_WARN
-#define log_warn(M, ...) fprintf(stderr, "[WARN] (%s:%d) " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#else
-#define log_warn(x, ...) do {} while (0)
-#endif
-
-#if LOG_LEVEL <= LOG_ERR
-#define log_err(M, ...) fprintf(stderr, "[ERROR] (%s:%d) " M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#else
-#define log_err(x, ...) do {} while (0)
-#endif
-
-/*@end@*/
 
 /**
  * @brief Occurs when howm first starts.
@@ -1205,7 +809,7 @@ int get_non_tff_count(void)
  *
  * @return The first client that isn't TFF. NULL if none.
  */
-static Client *get_first_non_tff(void)
+ Client *get_first_non_tff(void)
 {
 	Client *c = NULL;
 
@@ -1930,7 +1534,7 @@ void change_client_geom(Client *c, uint16_t x, uint16_t y, uint16_t w, uint16_t 
  * workspace.
  * @param cnt The amount of clients or workspaces to perform the operation on.
  */
-static void op_shrink_gaps(const unsigned int type, int cnt)
+ void op_shrink_gaps(const unsigned int type, int cnt)
 {
 	change_gaps(type, cnt, -OP_GAP_SIZE);
 }
@@ -1946,7 +1550,7 @@ static void op_shrink_gaps(const unsigned int type, int cnt)
  * workspace.
  * @param cnt The amount of clients or workspaces to perform the operation on.
  */
-static void op_grow_gaps(const unsigned int type, int cnt)
+ void op_grow_gaps(const unsigned int type, int cnt)
 {
 	change_gaps(type, cnt, OP_GAP_SIZE);
 }
@@ -1957,7 +1561,7 @@ static void op_grow_gaps(const unsigned int type, int cnt)
  * @param c The client who's gap size should be changed.
  * @param size The size by which the gap should be changed.
  */
-static void change_client_gaps(Client *c, int size)
+ void change_client_gaps(Client *c, int size)
 {
 	if (c->is_fullscreen)
 		return;
@@ -1980,7 +1584,7 @@ static void change_client_gaps(Client *c, int size)
  * @param size The amount of pixels to change the gap size by. This is
  * configured through OP_GAP_SIZE.
  */
-static void change_gaps(const unsigned int type, int cnt, int size)
+ void change_gaps(const unsigned int type, int cnt, int size)
 {
 	Client *c = NULL;
 
@@ -2010,7 +1614,7 @@ static void change_gaps(const unsigned int type, int cnt, int size)
  *
  * @param arg Unused.
  */
-static void toggle_float(const Arg *arg)
+ void toggle_float(const Arg *arg)
 {
 	UNUSED(arg);
 	if (!wss[cw].current)
@@ -2033,7 +1637,7 @@ static void toggle_float(const Arg *arg)
  *
  * @param arg The amount of pixels that the window's size should be changed by.
  */
-static void resize_float_width(const Arg *arg)
+ void resize_float_width(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating || (int)wss[cw].current->w + arg->i <= 0)
 		return;
@@ -2050,7 +1654,7 @@ static void resize_float_width(const Arg *arg)
  *
  * @param arg The amount of pixels that the window's size should be changed by.
  */
-static void resize_float_height(const Arg *arg)
+ void resize_float_height(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating || (int)wss[cw].current->h + arg->i <= 0)
 		return;
@@ -2067,7 +1671,7 @@ static void resize_float_height(const Arg *arg)
  *
  * @param arg The amount of pixels that the window should be moved.
  */
-static void move_float_y(const Arg *arg)
+ void move_float_y(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating)
 		return;
@@ -2085,7 +1689,7 @@ static void move_float_y(const Arg *arg)
  *
  * @param arg The amount of pixels that the window should be moved.
  */
-static void move_float_x(const Arg *arg)
+ void move_float_x(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating)
 		return;
@@ -2100,7 +1704,7 @@ static void move_float_x(const Arg *arg)
  *
  * @param arg Which location to teleport the window to.
  */
-static void teleport_client(const Arg *arg)
+ void teleport_client(const Arg *arg)
 {
 	if (!wss[cw].current || !wss[cw].current->is_floating
 			|| wss[cw].current->is_transient)
@@ -2150,7 +1754,7 @@ static void teleport_client(const Arg *arg)
  *
  * @param arg The return value that howm will send.
  */
-static void quit_howm(const Arg *arg)
+ void quit_howm(const Arg *arg)
 {
 	log_warn("Quitting");
 	retval = arg->i;
@@ -2163,7 +1767,7 @@ static void quit_howm(const Arg *arg)
  * Delete all of the windows that have been created, remove button and key
  * grabs and remove pointer focus.
  */
-static void cleanup(void)
+ void cleanup(void)
 {
 	xcb_window_t *w;
 	xcb_query_tree_reply_t *q;
@@ -2192,7 +1796,7 @@ static void cleanup(void)
  *
  * @param win The window to be deleted.
  */
-static void delete_win(xcb_window_t win)
+ void delete_win(xcb_window_t win)
 {
 	xcb_client_message_event_t ev;
 
@@ -2215,7 +1819,7 @@ static void delete_win(xcb_window_t win)
  * percentage. e.g. arg->i = 5 will increase the master window's size by 5% of
  * it maximum.
  */
-static void resize_master(const Arg *arg)
+ void resize_master(const Arg *arg)
 {
 	/* Resize master only when resizing is visible (i.e. in Stack layouts). */
 	if (wss[cw].layout != HSTACK && wss[cw].layout != VSTACK)
@@ -2236,7 +1840,7 @@ static void resize_master(const Arg *arg)
  *
  * @param arg Unused.
  */
-static void toggle_bar(const Arg *arg)
+ void toggle_bar(const Arg *arg)
 {
 	UNUSED(arg);
 	if (wss[cw].bar_height == 0 && BAR_HEIGHT > 0) {
@@ -2295,7 +1899,7 @@ Client *create_client(xcb_window_t w)
  *
  * @param arg Unused
  */
-static void make_master(const Arg *arg)
+ void make_master(const Arg *arg)
 {
 	UNUSED(arg);
 	if (!wss[cw].current || !wss[cw].head->next
@@ -2356,7 +1960,7 @@ void setup_ewmh(void)
  * @param c The client which should have its fullscreen state altered.
  * @param fscr The fullscreen state that the client should be changed to.
  */
-static void set_fullscreen(Client *c, bool fscr)
+ void set_fullscreen(Client *c, bool fscr)
 {
 	long data[] = {fscr ? ewmh->_NET_WM_STATE_FULLSCREEN : XCB_NONE };
 
@@ -2379,7 +1983,7 @@ static void set_fullscreen(Client *c, bool fscr)
 	}
 }
 
-static void set_urgent(Client *c, bool urg)
+ void set_urgent(Client *c, bool urg)
 {
 	if (!c || urg == c->is_urgent)
 		return;
@@ -2395,7 +1999,7 @@ static void set_urgent(Client *c, bool urg)
  *
  * @param arg Unused.
  */
-static void toggle_fullscreen(const Arg *arg)
+ void toggle_fullscreen(const Arg *arg)
 {
 	UNUSED(arg);
 	if (wss[cw].current != NULL)
@@ -2407,7 +2011,7 @@ static void toggle_fullscreen(const Arg *arg)
  *
  * @param ev The client message as a generic event.
  */
-static void client_message_event(xcb_generic_event_t *ev)
+ void client_message_event(xcb_generic_event_t *ev)
 {
 	xcb_client_message_event_t *cm = (xcb_client_message_event_t *)ev;
 	Client *c = find_client_by_win(cm->window);
@@ -2436,7 +2040,7 @@ static void client_message_event(xcb_generic_event_t *ev)
  * @param type The last type (defined by a motion).
  * @param cnt The last count.
  */
-static void save_last_ocm(void (*op)(const unsigned int, int), const unsigned int type, int cnt)
+ void save_last_ocm(void (*op)(const unsigned int, int), const unsigned int type, int cnt)
 {
 	rep_state.last_op = op;
 	rep_state.last_type = type;
@@ -2451,7 +2055,7 @@ static void save_last_ocm(void (*op)(const unsigned int, int), const unsigned in
  * @param cmd The last command.
  * @param arg The argument passed to the last command.
  */
-static void save_last_cmd(void (*cmd)(const Arg *arg), const Arg *arg)
+ void save_last_cmd(void (*cmd)(const Arg *arg), const Arg *arg)
 {
 	rep_state.last_cmd = cmd;
 	rep_state.last_arg = arg;
@@ -2464,7 +2068,7 @@ static void save_last_cmd(void (*cmd)(const Arg *arg), const Arg *arg)
  *
  * @param arg Unused
  */
-static void replay(const Arg *arg)
+ void replay(const Arg *arg)
 {
 	UNUSED(arg);
 	if (rep_state.last_cmd)
@@ -2478,7 +2082,7 @@ static void replay(const Arg *arg)
  *
  * @param arg Unused.
  */
-static void restart_howm(const Arg *arg)
+ void restart_howm(const Arg *arg)
 {
 	UNUSED(arg);
 	log_warn("Restarting.");
@@ -2495,7 +2099,7 @@ static void restart_howm(const Arg *arg)
  * @param a The atom representing which WM_STATE hint should be modified.
  * @param action Whether to remove, add or toggle the WM_STATE hint.
  */
-static void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action)
+ void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action)
 {
 	if (a == ewmh->_NET_WM_STATE_FULLSCREEN) {
 		if (action == _NET_WM_STATE_REMOVE)
@@ -2524,7 +2128,7 @@ static void ewmh_process_wm_state(Client *c, xcb_atom_t a, int action)
  *
  * @param s The stack that needs to have its contents allocated.
  */
-static void stack_init(struct stack *s)
+ void stack_init(struct stack *s)
 {
 	s->contents = (Client **)malloc(sizeof(Client) * DELETE_REGISTER_SIZE);
 	if (!s->contents)
@@ -2536,7 +2140,7 @@ static void stack_init(struct stack *s)
  *
  * @param s The stack that needs to have its contents freed.
  */
-static void stack_free(struct stack *s)
+ void stack_free(struct stack *s)
 {
 	free(s->contents);
 }
@@ -2548,7 +2152,7 @@ static void stack_free(struct stack *s)
  * @param c The client to be pushed on. This client is treated as the head of a
  * linked list.
  */
-static void stack_push(struct stack *s, Client *c)
+ void stack_push(struct stack *s, Client *c)
 {
 	if (!c || !s) {
 		return;
@@ -2567,7 +2171,7 @@ static void stack_push(struct stack *s, Client *c)
  * @return The client that was at the top of the stack. It acts as the head of
  * the linked list of clients.
  */
-static Client *stack_pop(struct stack *s)
+ Client *stack_pop(struct stack *s)
 {
 	if (!s) {
 		return NULL;
@@ -2589,7 +2193,7 @@ static Client *stack_pop(struct stack *s)
  * @param type Whether to cut an entire workspace or client.
  * @param cnt The amount of clients or workspaces to cut.
  */
-static void op_cut(const unsigned int type, int cnt)
+ void op_cut(const unsigned int type, int cnt)
 {
 	Client *tail = wss[cw].current;
 	Client *head = wss[cw].current;
@@ -2660,7 +2264,7 @@ static void op_cut(const unsigned int type, int cnt)
  *
  * @param arg Unused.
  */
-static void focus_urgent(const Arg *arg)
+ void focus_urgent(const Arg *arg)
 {
 	UNUSED(arg);
 	Client *c;
@@ -2682,7 +2286,7 @@ static void focus_urgent(const Arg *arg)
  *
  * @param arg Unused
  */
-static void paste(const Arg *arg)
+ void paste(const Arg *arg)
 {
 	UNUSED(arg);
 	Client *head = stack_pop(&del_reg);
@@ -2736,7 +2340,7 @@ static void paste(const Arg *arg)
  *
  * @param c The client that has been created.
  */
-static void apply_rules(Client *c)
+ void apply_rules(Client *c)
 {
 	xcb_icccm_get_wm_class_reply_t wc;
 	unsigned int i;

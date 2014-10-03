@@ -83,8 +83,8 @@
 /** The width of the floating scratchpad window. */
 #define SCRATCHPAD_WIDTH 500
 
-static const char * const term_cmd[] = {"urxvt", NULL};
-static const char * const dmenu_cmd[] = {"dmenu_run", "-i", "-b",
+static const char *const term_cmd[] = {"urxvt", NULL};
+static const char *const dmenu_cmd[] = {"dmenu_run", "-i", "-b",
 		    "-nb", "#70898f", "-nf", "black",
 		    "-sf", "#74718e", NULL};
 
